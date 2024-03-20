@@ -6,13 +6,11 @@ from image_encoder import ImageEncoder
 from pixelnerf_dataset import PixelNeRFDataset
 from torch import nn, optim
 
-
 def get_coarse_query_points(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os):
     u_is_c = torch.rand(*list(ds.shape[:2]) + [N_c]).to(ds)
     t_is_c = t_i_c_bin_edges + u_is_c * t_i_c_gap
     r_ts_c = os[..., None, :] + t_is_c[..., :, None] * ds[..., None, :]
     return (r_ts_c, t_is_c)
-
 
 def get_fine_query_points(w_is_c, N_f, t_is_c, t_f, os, ds, r_ts_c, N_d, d_std, t_n):
     w_is_c = w_is_c + 1e-5
@@ -46,7 +44,6 @@ def get_fine_query_points(w_is_c, N_f, t_is_c, t_f, os, ds, r_ts_c, N_d, d_std, 
 
     return (r_ts_f, t_is_f)
 
-
 def get_image_features_for_query_points(r_ts, camera_distance, scale, W_i):
     # Get the projected image coordinates (pi_x_is) for each point along the rays
     # (r_ts). This is just geometry. See: http://www.songho.ca/opengl/gl_projectionmatrix.html.
@@ -68,7 +65,6 @@ def get_image_features_for_query_points(r_ts, camera_distance, scale, W_i):
     # Convert shape back to match rays.
     z_is = z_is.permute(2, 3, 0, 1)
     return z_is
-
 
 def render_radiance_volume(r_ts, ds, z_is, chunk_size, F, t_is):
     r_ts_flat = r_ts.reshape((-1, 3))
@@ -105,7 +101,6 @@ def render_radiance_volume(r_ts, ds, z_is, chunk_size, F, t_is):
 
     return (C_rs, w_is)
 
-
 def run_one_iter_of_pixelnerf(
     ds,
     N_c,
@@ -136,7 +131,6 @@ def run_one_iter_of_pixelnerf(
     z_is_f = get_image_features_for_query_points(r_ts_f, camera_distance, scale, W_i)
     (C_rs_f, _) = render_radiance_volume(r_ts_f, ds, z_is_f, chunk_size, F_f, t_is_f)
     return (C_rs_c, C_rs_f)
-
 
 class PixelNeRFFCResNet(nn.Module):
     def __init__(self):
@@ -205,7 +199,6 @@ class PixelNeRFFCResNet(nn.Module):
         c_is = torch.sigmoid(outputs[:, 1:])
         return {"c_is": c_is, "sigma_is": sigma_is}
 
-
 def load_data():
     # Initialize dataset and test object/poses.
     data_dir = "data"
@@ -218,7 +211,6 @@ def load_data():
         data_dir, num_iters, test_obj_idx, test_source_pose_idx, test_target_pose_idx
     )
     return train_dataset
-
 
 def set_up_test_data(train_dataset, device):
     obj_idx = train_dataset.test_obj_idx
@@ -254,13 +246,12 @@ def set_up_test_data(train_dataset, device):
 
     return (source_image, R, target_image)
 
-
 def main():
     seed = 9458
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    device = "cuda:0"
+    device = "cuda:1"
     F_c = PixelNeRFFCResNet().to(device)
     F_f = PixelNeRFFCResNet().to(device)
 
@@ -308,7 +299,8 @@ def main():
     num_iters = train_dataset.N
     use_bbox = True
     num_bbox_iters = 300000
-    display_every = 100
+    display_every = 1000
+    plot_every = 10000
     F_c.train()
     F_f.train()
     E.eval()
@@ -413,28 +405,25 @@ def main():
                     t_n,
                     F_f,
                 )
-
             loss = criterion(C_rs_f, test_target_image)
-            print(f"Loss: {loss.item()}")
+            print(f"Loss at iteration {i} : {loss.item()}")
             psnr = -10.0 * torch.log10(loss)
-
             psnrs.append(psnr.item())
             iternums.append(i)
-
-            plt.figure(figsize=(10, 4))
-            plt.subplot(121)
-            plt.imshow(C_rs_f.detach().cpu().numpy())
-            plt.title(f"Iteration {i}")
-            plt.subplot(122)
-            plt.plot(iternums, psnrs)
-            plt.title("PSNR")
-            plt.show()
-
+            if i%plot_every == 0:
+                plt.figure(figsize=(10, 4))
+                plt.subplot(121)
+                plt.imshow(C_rs_f.detach().cpu().numpy())
+                plt.title(f"Iteration {i}")
+                plt.subplot(122)
+                plt.plot(iternums, psnrs)
+                plt.title("PSNR")
+                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/" + "Iteration_"+str(i)
+                plt.savefig(store_folder)
+                plt.close('all')
             F_c.train()
             F_f.train()
-
     print("Done!")
-
 
 if __name__ == "__main__":
     main()
