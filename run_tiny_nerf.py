@@ -4,13 +4,11 @@ import torch
 
 from torch import nn, optim
 
-
 def get_coarse_query_points(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os):
     u_is_c = torch.rand(*list(ds.shape[:2]) + [N_c]).to(ds)
     t_is_c = t_i_c_bin_edges + u_is_c * t_i_c_gap
     r_ts_c = os[..., None, :] + t_is_c[..., :, None] * ds[..., None, :]
     return (r_ts_c, t_is_c)
-
 
 def render_radiance_volume(r_ts, ds, chunk_size, F, t_is):
     r_ts_flat = r_ts.reshape((-1, 3))
@@ -45,12 +43,10 @@ def render_radiance_volume(r_ts, ds, chunk_size, F, t_is):
 
     return C_rs
 
-
 def run_one_iter_of_tiny_nerf(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os, chunk_size, F_c):
     (r_ts_c, t_is_c) = get_coarse_query_points(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os)
     C_rs_c = render_radiance_volume(r_ts_c, ds, chunk_size, F_c, t_is_c)
     return C_rs_c
-
 
 class VeryTinyNeRFMLP(nn.Module):
     def __init__(self):
@@ -95,13 +91,12 @@ class VeryTinyNeRFMLP(nn.Module):
         c_is = self.late_mlp(torch.cat([outputs[:, 1:], ds_encoded], dim=-1))
         return {"c_is": c_is, "sigma_is": sigma_is}
 
-
 def main():
     seed = 9458
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    device = "cuda:0"
+    device = "cuda:1"
     F_c = VeryTinyNeRFMLP().to(device)
     chunk_size = 16384
 
@@ -144,7 +139,7 @@ def main():
     psnrs = []
     iternums = []
     num_iters = 20000
-    display_every = 100
+    display_every = 1000
     F_c.train()
     for i in range(num_iters):
         target_img_idx = np.random.randint(images.shape[0])
@@ -170,7 +165,7 @@ def main():
                 )
 
             loss = criterion(C_rs_c, test_img)
-            print(f"Loss: {loss.item()}")
+            print(f"Loss after {i} iterations: {loss.item()}")
             psnr = -10.0 * torch.log10(loss)
 
             psnrs.append(psnr.item())
@@ -183,12 +178,11 @@ def main():
             plt.subplot(122)
             plt.plot(iternums, psnrs)
             plt.title("PSNR")
-            plt.show()
+            plt.savefig(f"Iteration {i}")
 
             F_c.train()
 
     print("Done!")
-
 
 if __name__ == "__main__":
     main()
