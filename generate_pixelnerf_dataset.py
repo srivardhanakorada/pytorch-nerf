@@ -34,12 +34,12 @@ def main():
     # See Section 5.1.1.
     samps = 50
     z_len = len(str(samps - 1))
-    data_dir = "data_v2"
+    data_dir = "data/02942699"
     poses = []
     os.mkdir(data_dir)
 
-    # Bike category.
-    cat = "03790512"
+    # Piano category.
+    cat = "02942699"
     objs = os.listdir(f"{SHAPENET_DIR}/{cat}")
     used_objs = []
     for obj in objs:
