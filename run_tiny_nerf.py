@@ -96,7 +96,7 @@ def main():
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    device = "cuda:1"
+    device = "cuda:0"
     F_c = VeryTinyNeRFMLP().to(device)
     chunk_size = 16384
 
@@ -127,62 +127,62 @@ def main():
     test_ds = torch.einsum("ij,hwj->hwi", test_R, init_ds)
     test_os = (test_R @ init_o).expand(test_ds.shape)
 
-    t_n = 1.0
-    t_f = 4.0
-    N_c = 32
-    t_i_c_gap = (t_f - t_n) / N_c
-    t_i_c_bin_edges = (t_n + torch.arange(N_c) * t_i_c_gap).to(device)
+    # t_n = 1.0
+    # t_f = 4.0
+    # N_c = 32
+    # t_i_c_gap = (t_f - t_n) / N_c
+    # t_i_c_bin_edges = (t_n + torch.arange(N_c) * t_i_c_gap).to(device)
 
-    train_idxs = np.arange(len(images)) != test_idx
-    images = torch.Tensor(images[train_idxs])
-    poses = torch.Tensor(poses[train_idxs])
-    psnrs = []
-    iternums = []
-    num_iters = 20000
-    display_every = 1000
-    F_c.train()
-    for i in range(num_iters):
-        target_img_idx = np.random.randint(images.shape[0])
-        target_pose = poses[target_img_idx].to(device)
-        R = target_pose[:3, :3]
+    # train_idxs = np.arange(len(images)) != test_idx
+    # images = torch.Tensor(images[train_idxs])
+    # poses = torch.Tensor(poses[train_idxs])
+    # psnrs = []
+    # iternums = []
+    # num_iters = 20000
+    # display_every = 1000
+    # F_c.train()
+    # for i in range(num_iters):
+    #     target_img_idx = np.random.randint(images.shape[0])
+    #     target_pose = poses[target_img_idx].to(device)
+    #     R = target_pose[:3, :3]
 
-        ds = torch.einsum("ij,hwj->hwi", R, init_ds)
-        os = (R @ init_o).expand(ds.shape)
+    #     ds = torch.einsum("ij,hwj->hwi", R, init_ds)
+    #     os = (R @ init_o).expand(ds.shape)
 
-        C_rs_c = run_one_iter_of_tiny_nerf(
-            ds, N_c, t_i_c_bin_edges, t_i_c_gap, os, chunk_size, F_c
-        )
-        loss = criterion(C_rs_c, images[target_img_idx].to(device))
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    #     C_rs_c = run_one_iter_of_tiny_nerf(
+    #         ds, N_c, t_i_c_bin_edges, t_i_c_gap, os, chunk_size, F_c
+    #     )
+    #     loss = criterion(C_rs_c, images[target_img_idx].to(device))
+    #     optimizer.zero_grad()
+    #     loss.backward()
+    #     optimizer.step()
 
-        if i % display_every == 0:
-            F_c.eval()
-            with torch.no_grad():
-                C_rs_c = run_one_iter_of_tiny_nerf(
-                    test_ds, N_c, t_i_c_bin_edges, t_i_c_gap, test_os, chunk_size, F_c
-                )
+    #     if i % display_every == 0:
+    #         F_c.eval()
+    #         with torch.no_grad():
+    #             C_rs_c = run_one_iter_of_tiny_nerf(
+    #                 test_ds, N_c, t_i_c_bin_edges, t_i_c_gap, test_os, chunk_size, F_c
+    #             )
 
-            loss = criterion(C_rs_c, test_img)
-            print(f"Loss after {i} iterations: {loss.item()}")
-            psnr = -10.0 * torch.log10(loss)
+    #         loss = criterion(C_rs_c, test_img)
+    #         print(f"Loss after {i} iterations: {loss.item()}")
+    #         psnr = -10.0 * torch.log10(loss)
 
-            psnrs.append(psnr.item())
-            iternums.append(i)
+    #         psnrs.append(psnr.item())
+    #         iternums.append(i)
 
-            plt.figure(figsize=(10, 4))
-            plt.subplot(121)
-            plt.imshow(C_rs_c.detach().cpu().numpy())
-            plt.title(f"Iteration {i}")
-            plt.subplot(122)
-            plt.plot(iternums, psnrs)
-            plt.title("PSNR")
-            plt.savefig(f"Iteration {i}")
+    #         plt.figure(figsize=(10, 4))
+    #         plt.subplot(121)
+    #         plt.imshow(C_rs_c.detach().cpu().numpy())
+    #         plt.title(f"Iteration {i}")
+    #         plt.subplot(122)
+    #         plt.plot(iternums, psnrs)
+    #         plt.title("PSNR")
+    #         plt.savefig(f"Iteration {i}")
 
-            F_c.train()
+    #         F_c.train()
 
-    print("Done!")
+    # print("Done!")
 
 if __name__ == "__main__":
     main()
