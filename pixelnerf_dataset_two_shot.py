@@ -3,7 +3,7 @@ import torch
 
 from torch.utils.data import Dataset
 
-class PixelNeRFDataset(Dataset):
+class PixelNeRFDatasetTwoshot(Dataset):
     def __init__(self, data_dir,num_iters,test_obj_idx,test_source_pose_idx_one,test_source_pose_idx_two,test_target_pose_idx):
         self.data_dir = data_dir
         self.N = num_iters

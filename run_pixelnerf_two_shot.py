@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 from image_encoder import ImageEncoder
-from pixelnerf_dataset import PixelNeRFDataset
+from pixelnerf_dataset_two_shot import PixelNeRFDatasetTwoshot
 from torch import nn, optim
 
 def get_coarse_query_points(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os):
@@ -107,18 +107,35 @@ def run_one_iter_of_pixelnerf(
     t_n,
     F_f,
 ):
-    (r_ts_c, t_is_c) = get_coarse_query_points(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os)
-    z_is_c = get_image_features_for_query_points(r_ts_c, camera_distance, scale, W_i)
-    (C_rs_c, w_is_c) = render_radiance_volume(
-        r_ts_c, ds, z_is_c, chunk_size, F_c, t_is_c
+    # Coarse stage for source image one
+    (r_ts_c_1, t_is_c_1) = get_coarse_query_points(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os)
+    z_is_c_1 = get_image_features_for_query_points(r_ts_c_1, camera_distance, scale, W_i)
+    (C_rs_c_1, w_is_c_1) = render_radiance_volume(
+        r_ts_c_1, ds, z_is_c_1, chunk_size, F_c, t_is_c_1
     )
 
-    (r_ts_f, t_is_f) = get_fine_query_points(
-        w_is_c, N_f, t_is_c, t_f, os, ds, r_ts_c, N_d, d_std, t_n
+    # Coarse stage for source image two
+    (r_ts_c_2, t_is_c_2) = get_coarse_query_points(ds, N_c, t_i_c_bin_edges, t_i_c_gap, os)
+    z_is_c_2 = get_image_features_for_query_points(r_ts_c_2, camera_distance, scale, W_i)
+    (C_rs_c_2, w_is_c_2) = render_radiance_volume(
+        r_ts_c_2, ds, z_is_c_2, chunk_size, F_c, t_is_c_2
     )
-    z_is_f = get_image_features_for_query_points(r_ts_f, camera_distance, scale, W_i)
-    (C_rs_f, _) = render_radiance_volume(r_ts_f, ds, z_is_f, chunk_size, F_f, t_is_f)
-    return (C_rs_c, C_rs_f)
+
+    # Fine stage for source image one
+    (r_ts_f_1, t_is_f_1) = get_fine_query_points(
+        w_is_c_1, N_f, t_is_c_1, t_f, os, ds, r_ts_c_1, N_d, d_std, t_n
+    )
+    z_is_f_1 = get_image_features_for_query_points(r_ts_f_1, camera_distance, scale, W_i)
+    (C_rs_f_1, _) = render_radiance_volume(r_ts_f_1, ds, z_is_f_1, chunk_size, F_f, t_is_f_1)
+
+    # Fine stage for source image two
+    (r_ts_f_2, t_is_f_2) = get_fine_query_points(
+        w_is_c_2, N_f, t_is_c_2, t_f, os, ds, r_ts_c_2, N_d, d_std, t_n
+    )
+    z_is_f_2 = get_image_features_for_query_points(r_ts_f_2, camera_distance, scale, W_i)
+    (C_rs_f_2, _) = render_radiance_volume(r_ts_f_2, ds, z_is_f_2, chunk_size, F_f, t_is_f_2)
+
+    return ((C_rs_c_1, C_rs_f_1), (C_rs_c_2, C_rs_f_2))  # Returning radiance volumes for both source images
 
 class PixelNeRFFCResNet(nn.Module):
     def __init__(self):
@@ -130,7 +147,7 @@ class PixelNeRFFCResNet(nn.Module):
 
         net_width = 512
         self.first_layer = nn.Sequential(
-            nn.Linear(pos_enc_feats + dir_enc_feats, net_width)
+            nn.Linear(2 * (pos_enc_feats + dir_enc_feats), net_width)
         )
         self.n_resnet_blocks = 5
         z_linears = []
@@ -150,23 +167,27 @@ class PixelNeRFFCResNet(nn.Module):
         self.mlps = nn.ModuleList(mlps)
         self.final_layer = nn.Linear(net_width, 4)
 
-    def forward(self, xs, ds, zs):
-        xs_encoded = [xs]
-        for l_pos in range(self.L_pos):
-            xs_encoded.append(torch.sin(2**l_pos * torch.pi * xs))
-            xs_encoded.append(torch.cos(2**l_pos * torch.pi * xs))
+    def forward(self, source_image_one, source_image_two, target_image, ds, zs):
+        # Encode source images
+        source_encoded = []
+        for source_image in [source_image_one, source_image_two]:
+            for l_pos in range(self.L_pos):
+                source_encoded.append(torch.sin(2 ** l_pos * torch.pi * source_image))
+                source_encoded.append(torch.cos(2 ** l_pos * torch.pi * source_image))
+        source_encoded = torch.cat(source_encoded, dim=-1)
 
-        xs_encoded = torch.cat(xs_encoded, dim=-1)
-
+        # Encode view direction
         ds = ds / ds.norm(p=2, dim=-1).unsqueeze(-1)
         ds_encoded = [ds]
         for l_dir in range(self.L_dir):
-            ds_encoded.append(torch.sin(2**l_dir * torch.pi * ds))
-            ds_encoded.append(torch.cos(2**l_dir * torch.pi * ds))
-
+            ds_encoded.append(torch.sin(2 ** l_dir * torch.pi * ds))
+            ds_encoded.append(torch.cos(2 ** l_dir * torch.pi * ds))
         ds_encoded = torch.cat(ds_encoded, dim=-1)
 
-        outputs = self.first_layer(torch.cat([xs_encoded, ds_encoded], dim=-1))
+        # Concatenate encoded source images and view direction
+        xs_encoded = torch.cat([source_encoded, ds_encoded], dim=-1)
+
+        outputs = self.first_layer(xs_encoded)
         for block_idx in range(self.n_resnet_blocks):
             resnet_zs = self.z_linears[block_idx](zs)
             outputs = outputs + resnet_zs
@@ -183,9 +204,7 @@ def load_data():
     test_obj_idx = 5
     test_source_pose_idx = 11
     test_target_pose_idx = 33
-    train_dataset = PixelNeRFDataset(
-        data_dir, num_iters, test_obj_idx, test_source_pose_idx, test_target_pose_idx
-    )
+    train_dataset = PixelNeRFDatasetTwoshot(data_dir, num_iters, test_obj_idx, test_source_pose_idx, test_target_pose_idx)
     return train_dataset
 
 def set_up_test_data(train_dataset, device):
@@ -195,11 +214,16 @@ def set_up_test_data(train_dataset, device):
     obj_dir = f"{data_dir}/{obj}"
 
     z_len = train_dataset.z_len
-    source_pose_idx = train_dataset.test_source_pose_idx
-    source_img_f = f"{obj_dir}/{str(source_pose_idx).zfill(z_len)}.npy"
-    source_image = np.load(source_img_f) / 255
-    source_pose = train_dataset.poses[obj_idx, source_pose_idx]
-    source_R = source_pose[:3, :3]
+    source_pose_idx_one = train_dataset.test_source_pose_idx_one
+    source_img_f_one = f"{obj_dir}/{str(source_pose_idx_one).zfill(z_len)}.npy"
+    source_image_one = np.load(source_img_f_one) / 255
+    source_pose_one = train_dataset.poses[obj_idx, source_pose_idx_one]
+    source_R_one = source_pose_one[:3, :3]
+    source_pose_idx_two = train_dataset.test_source_pose_idx_two
+    source_img_f_two = f"{obj_dir}/{str(source_pose_idx_two).zfill(z_len)}.npy"
+    source_image_two = np.load(source_img_f_two) / 255
+    source_pose_two = train_dataset.poses[obj_idx, source_pose_idx_two]
+    source_R_two = source_pose_two[:3, :3]
 
     target_pose_idx = train_dataset.test_target_pose_idx
     target_img_f = f"{obj_dir}/{str(target_pose_idx).zfill(z_len)}.npy"
@@ -207,16 +231,26 @@ def set_up_test_data(train_dataset, device):
     target_pose = train_dataset.poses[obj_idx, target_pose_idx]
     target_R = target_pose[:3, :3]
 
-    R = torch.Tensor(source_R.T @ target_R).to(device)
+    R_one = torch.Tensor(source_R_one.T @ target_R).to(device)
+    R_two = torch.Tensor(source_R_two.T @ target_R).to(device)
 
-    source_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/source_image.png"
-    plt.imshow(source_image)
-    plt.savefig(source_image_path)
+    source_image_path_one = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/source_image_one.png"
+    plt.imshow(source_image_one)
+    plt.savefig(source_image_path_one)
     plt.close()
 
-    source_image = torch.Tensor(source_image)
-    source_image = (source_image - train_dataset.channel_means) / train_dataset.channel_stds
-    source_image = source_image.to(device).unsqueeze(0).permute(0, 3, 1, 2)
+    source_image_path_two = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/source_image_two.png"
+    plt.imshow(source_image_two)
+    plt.savefig(source_image_path_two)
+    plt.close()
+
+    source_image_one = torch.Tensor(source_image_one)
+    source_image_one = (source_image_one - train_dataset.channel_means) / train_dataset.channel_stds
+    source_image_one = source_image_one.to(device).unsqueeze(0).permute(0, 3, 1, 2)
+
+    source_image_two = torch.Tensor(source_image_two)
+    source_image_two = (source_image_two - train_dataset.channel_means) / train_dataset.channel_stds
+    source_image_two = source_image_two.to(device).unsqueeze(0).permute(0, 3, 1, 2)
 
     target_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/target_image.png"
     plt.imshow(target_image)
@@ -225,7 +259,7 @@ def set_up_test_data(train_dataset, device):
 
     target_image = torch.Tensor(target_image).to(device)
 
-    return source_image, R, target_image
+    return source_image_one, R_one, source_image_two, R_two, target_image
 
 def main():
     seed = 9458
@@ -246,6 +280,7 @@ def main():
     optimizer = optim.Adam(list(F_c.parameters()) + list(F_f.parameters()), lr=lr)
     criterion = nn.MSELoss()
 
+    # Load the two-shot training dataset
     train_dataset = load_data()
 
     camera_distance = train_dataset.camera_distance
@@ -264,11 +299,14 @@ def main():
     init_o = train_dataset.init_o.to(device)
     init_ds = train_dataset.init_ds.to(device)
 
-    (test_source_image, test_R, test_target_image) = set_up_test_data(
+    # Set up the test data
+    (test_source_image_one, test_R_one, test_source_image_two, test_R_two, test_target_image) = set_up_test_data(
         train_dataset, device
     )
-    test_ds = torch.einsum("ij,hwj->hwi", test_R, init_ds)
-    test_os = (test_R @ init_o).expand(test_ds.shape)
+    test_ds_one = torch.einsum("ij,hwj->hwi", test_R_one, init_ds)
+    test_ds_two = torch.einsum("ij,hwj->hwi", test_R_two, init_ds)
+    test_os_one = (test_R_one @ init_o).expand(test_ds_one.shape)
+    test_os_two = (test_R_two @ init_o).expand(test_ds_two.shape)
 
     psnrs = []
     iternums = []
@@ -287,13 +325,16 @@ def main():
         loss = 0
         for obj in range(n_objs):
             try:
-                (source_image, R, target_image, bbox) = train_dataset[0]
+                (source_image_one, source_image_two, R_one, R_two, target_image, bbox) = train_dataset[0]
             except ValueError:
                 continue
 
-            R = R.to(device)
-            ds = torch.einsum("ij,hwj->hwi", R, init_ds)
-            os = (R @ init_o).expand(ds.shape)
+            R_one = R_one.to(device)
+            R_two = R_two.to(device)
+            ds_one = torch.einsum("ij,hwj->hwi", R_one, init_ds)
+            ds_two = torch.einsum("ij,hwj->hwi", R_two, init_ds)
+            os_one = (R_one @ init_o).expand(ds_one.shape)
+            os_two = (R_two @ init_o).expand(ds_two.shape)
 
             if use_bbox:
                 pix_rows = np.arange(bbox[0], bbox[2])
@@ -312,22 +353,28 @@ def main():
 
             pix_idx_rows = pix_row_cols[selected_pix, 0]
             pix_idx_cols = pix_row_cols[selected_pix, 1]
-            ds_batch = ds[pix_idx_rows, pix_idx_cols].reshape(
+            ds_batch_one = ds_one[pix_idx_rows, pix_idx_cols].reshape(
                 batch_img_size, batch_img_size, -1
             )
-            os_batch = os[pix_idx_rows, pix_idx_cols].reshape(
+            os_batch_one = os_one[pix_idx_rows, pix_idx_cols].reshape(
+                batch_img_size, batch_img_size, -1
+            )
+            ds_batch_two = ds_two[pix_idx_rows, pix_idx_cols].reshape(
+                batch_img_size, batch_img_size, -1
+            )
+            os_batch_two = os_two[pix_idx_rows, pix_idx_cols].reshape(
                 batch_img_size, batch_img_size, -1
             )
 
             with torch.no_grad():
-                W_i = E(source_image.unsqueeze(0).permute(0, 3, 1, 2).to(device))
+                W_i = E(source_image_one.permute(0, 3, 1, 2).to(device))
 
-            (C_rs_c, C_rs_f) = run_one_iter_of_pixelnerf(
-                ds_batch,
+            (C_rs_c_one, C_rs_f_one) = run_one_iter_of_pixelnerf(
+                ds_batch_one,
                 N_c,
                 t_i_c_bin_edges,
                 t_i_c_gap,
-                os_batch,
+                os_batch_one,
                 camera_distance,
                 scale,
                 W_i,
@@ -340,12 +387,43 @@ def main():
                 t_n,
                 F_f,
             )
-            target_img = target_image.to(device)
-            target_img_batch = target_img[pix_idx_rows, pix_idx_cols].reshape(
-                C_rs_c.shape
+
+            with torch.no_grad():
+                W_i = E(source_image_two.permute(0, 3, 1, 2).to(device))
+
+            (C_rs_c_two, C_rs_f_two) = run_one_iter_of_pixelnerf(
+                ds_batch_two,
+                N_c,
+                t_i_c_bin_edges,
+                t_i_c_gap,
+                os_batch_two,
+                camera_distance,
+                scale,
+                W_i,
+                chunk_size,
+                F_c,
+                N_f,
+                t_f,
+                N_d,
+                d_std,
+                t_n,
+                F_f,
             )
-            loss += criterion(C_rs_c, target_img_batch)
-            loss += criterion(C_rs_f, target_img_batch)
+
+            target_img_one = target_image.to(device)
+            target_img_batch_one = target_img_one[pix_idx_rows, pix_idx_cols].reshape(
+                C_rs_c_one.shape
+            )
+
+            target_img_two = target_image.to(device)
+            target_img_batch_two = target_img_two[pix_idx_rows, pix_idx_cols].reshape(
+                C_rs_c_two.shape
+            )
+
+            loss += criterion(C_rs_c_one, target_img_batch_one)
+            loss += criterion(C_rs_f_one, target_img_batch_one)
+            loss += criterion(C_rs_c_two, target_img_batch_two)
+            loss += criterion(C_rs_f_two, target_img_batch_two)
 
         try:
             optimizer.zero_grad()
@@ -359,17 +437,17 @@ def main():
             F_f.eval()
 
             with torch.no_grad():
-                test_W_i = E(test_source_image)
+                test_W_i_one = E(test_source_image_one)
 
-                (_, C_rs_f) = run_one_iter_of_pixelnerf(
-                    test_ds,
+                (_, C_rs_f_one) = run_one_iter_of_pixelnerf(
+                    test_ds_one,
                     N_c,
                     t_i_c_bin_edges,
                     t_i_c_gap,
-                    test_os,
+                    test_os_one,
                     camera_distance,
                     scale,
-                    test_W_i,
+                    test_W_i_one,
                     chunk_size,
                     F_c,
                     N_f,
@@ -379,21 +457,45 @@ def main():
                     t_n,
                     F_f,
                 )
-            loss = criterion(C_rs_f, test_target_image)
-            print(f"Loss at iteration {i} : {loss.item()}")
-            psnr = -10.0 * torch.log10(loss)
-            psnrs.append(psnr.item())
+
+                test_W_i_two = E(test_source_image_two)
+
+                (_, C_rs_f_two) = run_one_iter_of_pixelnerf(
+                    test_ds_two,
+                    N_c,
+                    t_i_c_bin_edges,
+                    t_i_c_gap,
+                    test_os_two,
+                    camera_distance,
+                    scale,
+                    test_W_i_two,
+                    chunk_size,
+                    F_c,
+                    N_f,
+                    t_f,
+                    N_d,
+                    d_std,
+                    t_n,
+                    F_f,
+                )
+
+            loss_one = criterion(C_rs_f_one, test_target_image)
+            loss_two = criterion(C_rs_f_two, test_target_image)
+            print(f"Loss at iteration {i} for source image one: {loss_one.item()}")
+            print(f"Loss at iteration {i} for source image two: {loss_two.item()}")
+            psnr_one = -10.0 * torch.log10(loss_one)
+            psnr_two = -10.0 * torch.log10(loss_two)
+            psnrs.append((psnr_one.item(), psnr_two.item()))
             iternums.append(i)
-            if i%plot_every == 0:
+            if i % plot_every == 0:
                 plt.figure(figsize=(10, 4))
                 plt.subplot(121)
-                plt.imshow(C_rs_f.detach().cpu().numpy())
-                plt.title(f"Iteration {i}")
+                plt.imshow(C_rs_f_one.detach().cpu().numpy())
+                plt.title(f"Iteration {i} for source image one")
                 plt.subplot(122)
-                plt.plot(iternums, psnrs)
-                plt.title("PSNR")
-                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/" + "Iteration_"+str(i)
-                plt.savefig(store_folder)
+                plt.imshow(C_rs_f_two.detach().cpu().numpy())
+                plt.title(f"Iteration {i} for source image two")
+                plt.savefig(f"iteration_{i}_two_source_images.png")
                 plt.close('all')
             F_c.train()
             F_f.train()
