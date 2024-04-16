@@ -199,12 +199,13 @@ class PixelNeRFFCResNet(nn.Module):
         return {"c_is": c_is, "sigma_is": sigma_is}
 
 def load_data():
-    data_dir = "data/03790512"
-    num_iters = 70000
+    data_dir = "data/03928116"
+    num_iters = 10
     test_obj_idx = 5
-    test_source_pose_idx = 11
+    test_source_pose_idx_one = 11
+    test_source_pose_idx_two = 13
     test_target_pose_idx = 33
-    train_dataset = PixelNeRFDatasetTwoshot(data_dir, num_iters, test_obj_idx, test_source_pose_idx, test_target_pose_idx)
+    train_dataset = PixelNeRFDatasetTwoshot(data_dir, num_iters, test_obj_idx, test_source_pose_idx_one,test_source_pose_idx_two, test_target_pose_idx)
     return train_dataset
 
 def set_up_test_data(train_dataset, device):
@@ -234,12 +235,12 @@ def set_up_test_data(train_dataset, device):
     R_one = torch.Tensor(source_R_one.T @ target_R).to(device)
     R_two = torch.Tensor(source_R_two.T @ target_R).to(device)
 
-    source_image_path_one = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/source_image_one.png"
+    source_image_path_one = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03928116/source_image_one.png"
     plt.imshow(source_image_one)
     plt.savefig(source_image_path_one)
     plt.close()
 
-    source_image_path_two = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/source_image_two.png"
+    source_image_path_two = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03928116/source_image_two.png"
     plt.imshow(source_image_two)
     plt.savefig(source_image_path_two)
     plt.close()
@@ -252,7 +253,7 @@ def set_up_test_data(train_dataset, device):
     source_image_two = (source_image_two - train_dataset.channel_means) / train_dataset.channel_stds
     source_image_two = source_image_two.to(device).unsqueeze(0).permute(0, 3, 1, 2)
 
-    target_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/target_image.png"
+    target_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03928116/target_image.png"
     plt.imshow(target_image)
     plt.savefig(target_image_path)
     plt.close()
@@ -313,8 +314,8 @@ def main():
     num_iters = train_dataset.N
     use_bbox = True
     num_bbox_iters = 300000
-    display_every = 1000
-    plot_every = 10000
+    display_every = 1
+    plot_every = 1
     F_c.train()
     F_f.train()
     E.eval()
@@ -367,7 +368,7 @@ def main():
             )
 
             with torch.no_grad():
-                W_i = E(source_image_one.permute(0, 3, 1, 2).to(device))
+                W_i = E(source_image_one.unsqueeze(0).permute(0, 3, 1, 2).to(device))
 
             (C_rs_c_one, C_rs_f_one) = run_one_iter_of_pixelnerf(
                 ds_batch_one,
@@ -389,7 +390,7 @@ def main():
             )
 
             with torch.no_grad():
-                W_i = E(source_image_two.permute(0, 3, 1, 2).to(device))
+                W_i = E(source_image_two.unsqueeze(0).permute(0, 3, 1, 2).to(device))
 
             (C_rs_c_two, C_rs_f_two) = run_one_iter_of_pixelnerf(
                 ds_batch_two,
@@ -410,20 +411,13 @@ def main():
                 F_f,
             )
 
-            target_img_one = target_image.to(device)
-            target_img_batch_one = target_img_one[pix_idx_rows, pix_idx_cols].reshape(
+            target_img = target_image.to(device)
+            target_img_batch = target_img[pix_idx_rows, pix_idx_cols].reshape(
                 C_rs_c_one.shape
             )
-
-            target_img_two = target_image.to(device)
-            target_img_batch_two = target_img_two[pix_idx_rows, pix_idx_cols].reshape(
-                C_rs_c_two.shape
-            )
-
-            loss += criterion(C_rs_c_one, target_img_batch_one)
-            loss += criterion(C_rs_f_one, target_img_batch_one)
-            loss += criterion(C_rs_c_two, target_img_batch_two)
-            loss += criterion(C_rs_f_two, target_img_batch_two)
+            temp_one = (criterion(C_rs_c_one, target_img_batch) + criterion(C_rs_c_two, target_img_batch))/2
+            temp_two = (criterion(C_rs_f_one, target_img_batch) + criterion(C_rs_f_two, target_img_batch))/2
+            loss += (temp_one + temp_two)
 
         try:
             optimizer.zero_grad()
@@ -479,24 +473,23 @@ def main():
                     F_f,
                 )
 
-            loss_one = criterion(C_rs_f_one, test_target_image)
-            loss_two = criterion(C_rs_f_two, test_target_image)
-            print(f"Loss at iteration {i} for source image one: {loss_one.item()}")
-            print(f"Loss at iteration {i} for source image two: {loss_two.item()}")
-            psnr_one = -10.0 * torch.log10(loss_one)
-            psnr_two = -10.0 * torch.log10(loss_two)
-            psnrs.append((psnr_one.item(), psnr_two.item()))
+            # Average out C_rs for final image prediction
+            temp = ((C_rs_f_one + C_rs_f_two) / 2).astype(np.uint8)
+            print(type(temp),type(C_rs_f_one))
+            loss = criterion(temp, test_target_image)
+            psnr = 10 * torch.log10(1 / loss)
+            psnrs.append(psnr)
             iternums.append(i)
-            if i % plot_every == 0:
-                plt.figure(figsize=(10, 4))
-                plt.subplot(121)
-                plt.imshow(C_rs_f_one.detach().cpu().numpy())
-                plt.title(f"Iteration {i} for source image one")
-                plt.subplot(122)
-                plt.imshow(C_rs_f_two.detach().cpu().numpy())
-                plt.title(f"Iteration {i} for source image two")
-                plt.savefig(f"iteration_{i}_two_source_images.png")
-                plt.close('all')
+            # if i % plot_every == 0:
+            #     plt.figure(figsize=(10, 4))
+            #     plt.subplot(121)
+            #     plt.imshow(temp.detach().cpu().numpy())
+            #     plt.title(f"Iteration {i} for source image one")
+            #     plt.subplot(122)
+            #     plt.imshow(C_rs_f_two.detach().cpu().numpy())
+            #     plt.title(f"Iteration {i} for source image two")
+            #     plt.savefig(f"iteration_{i}_two_source_images.png")
+            #     plt.close('all')
             F_c.train()
             F_f.train()
     print("Done!")

@@ -179,7 +179,7 @@ class PixelNeRFFCResNet(nn.Module):
 
 def load_data():
     data_dir = "data/03790512"
-    num_iters = 70000
+    num_iters = 10
     test_obj_idx = 5
     test_source_pose_idx = 11
     test_target_pose_idx = 33
@@ -261,7 +261,7 @@ def main():
     t_i_c_gap = (t_f - t_n) / N_c
     t_i_c_bin_edges = (t_n + torch.arange(N_c) * t_i_c_gap).to(device)
 
-    init_o = train_dataset.init_o.to(device)
+    init_o = train_dataset.init_o.to(device) #?? As of now [0,0,camera_distance]
     init_ds = train_dataset.init_ds.to(device)
 
     (test_source_image, test_R, test_target_image) = set_up_test_data(
@@ -275,8 +275,8 @@ def main():
     num_iters = train_dataset.N
     use_bbox = True
     num_bbox_iters = 300000
-    display_every = 1000
-    plot_every = 10000
+    display_every = 1
+    plot_every = 1
     F_c.train()
     F_f.train()
     E.eval()
@@ -292,6 +292,8 @@ def main():
                 continue
 
             R = R.to(device)
+            # init_ds : Initial Pixel Coords in homogeneous form
+            # ds : Transformed Pixel Coords in homogeneous form
             ds = torch.einsum("ij,hwj->hwi", R, init_ds)
             os = (R @ init_o).expand(ds.shape)
 
@@ -320,6 +322,8 @@ def main():
             )
 
             with torch.no_grad():
+                # Unsqueeze : Adding a dimesnion (128 * 128 *3 --> 1*128*128*3)
+                # Permute : Rearranges the dimensions of input tensor (1*128*128*3 --> 1*3*128*128)
                 W_i = E(source_image.unsqueeze(0).permute(0, 3, 1, 2).to(device))
 
             (C_rs_c, C_rs_f) = run_one_iter_of_pixelnerf(
