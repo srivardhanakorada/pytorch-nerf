@@ -201,7 +201,7 @@ class PixelNeRFFCResNet(nn.Module):
         return {"c_is": c_is, "sigma_is": sigma_is}
 
 def load_data():
-    data_dir = "data/03207941"
+    data_dir = "data/03790512"
     num_iters = 70000
     test_obj_idx = 5
     test_source_pose_idx = 11
@@ -233,7 +233,7 @@ def set_up_test_data(train_dataset, device):
     R = torch.Tensor(source_R.T @ target_R).to(device)
 
     # Saving source image
-    source_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03207941/source_image.png"
+    source_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/source_image.png"
     plt.imshow(source_image)
     plt.savefig(source_image_path)
     plt.close()
@@ -244,7 +244,7 @@ def set_up_test_data(train_dataset, device):
     source_image = source_image.to(device).unsqueeze(0).permute(0, 3, 1, 2)
 
     # Saving target image
-    target_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03207941/target_image.png"
+    target_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/target_image.png"
     plt.imshow(target_image)
     plt.savefig(target_image_path)
     plt.close()
@@ -425,7 +425,7 @@ def main():
                 plt.subplot(122)
                 plt.plot(iternums, psnrs)
                 plt.title("PSNR")
-                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03207941/" + "Iteration_"+str(i)
+                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/" + "Iteration_"+str(i)
                 plt.savefig(store_folder)
                 plt.close('all')
             F_c.train()

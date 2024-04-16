@@ -3,23 +3,16 @@ import torch
 
 from torch.utils.data import Dataset
 
-
 class PixelNeRFDataset(Dataset):
-    def __init__(
-        self,
-        data_dir,
-        num_iters,
-        test_obj_idx,
-        test_source_pose_idx,
-        test_target_pose_idx,
-    ):
+    def __init__(self, data_dir,num_iters,test_obj_idx,test_source_pose_idx_one,test_source_pose_idx_two,test_target_pose_idx):
         self.data_dir = data_dir
         self.N = num_iters
         with open(f"{data_dir}/objs.txt") as f:
             self.objs = f.read().split("\n")[:-1]
 
         self.test_obj_idx = test_obj_idx
-        self.test_source_pose_idx = test_source_pose_idx
+        self.test_source_pose_idx_one = test_source_pose_idx_one
+        self.test_source_pose_idx_two = test_source_pose_idx_two
         self.test_target_pose_idx = test_target_pose_idx
         data = np.load(f"{data_dir}/poses.npz")
         self.poses = poses = data["poses"]
@@ -46,30 +39,42 @@ class PixelNeRFDataset(Dataset):
 
     def __len__(self):
         return self.N
-
+    
     def __getitem__(self, idx):
         obj_idx = np.random.randint(self.poses.shape[0])
         obj = self.objs[obj_idx]
         obj_dir = f"{self.data_dir}/{obj}"
 
-        source_pose_idx = np.random.randint(self.poses.shape[1])
+        source_pose_idx_one = np.random.randint(self.poses.shape[1])
+        source_pose_idx_two = np.random.randint(self.poses.shape[1])
         if obj_idx == self.test_obj_idx:
-            while source_pose_idx == self.test_source_pose_idx:
-                source_pose_idx = np.random.randint(self.poses.shape[1])
+            while source_pose_idx_one == self.test_source_pose_idx_one:
+                source_pose_idx_one = np.random.randint(self.poses.shape[1])
+            while source_pose_idx_two == self.test_source_pose_idx_two:
+                source_pose_idx_two = np.random.randint(self.poses.shape[1])
 
-        source_img_f = f"{obj_dir}/{str(source_pose_idx).zfill(self.z_len)}.npy"
-        source_image = torch.Tensor(np.load(source_img_f) / 255)
-        source_image = (source_image - self.channel_means) / self.channel_stds
-        source_pose = self.poses[obj_idx, source_pose_idx]
-        source_R = source_pose[:3, :3]
+        source_img_f_one = f"{obj_dir}/{str(source_pose_idx_one).zfill(self.z_len)}.npy"
+        source_img_f_two = f"{obj_dir}/{str(source_pose_idx_two).zfill(self.z_len)}.npy"
+        source_image_one = torch.Tensor(np.load(source_img_f_one)/255)
+        source_image_two = torch.Tensor(np.load(source_img_f_two)/255)
+        source_image_one = (source_image_one - self.channel_means) / self.channel_stds
+        source_image_two = (source_image_two - self.channel_means) / self.channel_stds
+        source_pose_one = self.poses[obj_idx, source_pose_idx_one]
+        source_pose_two = self.poses[obj_idx, source_pose_idx_two]
+        source_R_one = source_pose_one[:3, :3]
+        source_R_two = source_pose_two[:3, :3]
 
         target_pose_idx = np.random.randint(self.poses.shape[1])
         if obj_idx == self.test_obj_idx:
-            while (target_pose_idx == self.test_source_pose_idx) or (
+            while (target_pose_idx == self.test_source_pose_idx_one) or (
                 target_pose_idx == self.test_target_pose_idx
             ):
                 target_pose_idx = np.random.randint(self.poses.shape[1])
-
+            while (target_pose_idx == self.test_source_pose_idx_two) or (
+                target_pose_idx == self.test_target_pose_idx
+            ):
+                target_pose_idx = np.random.randint(self.poses.shape[1])
+        
         target_img_f = f"{obj_dir}/{str(target_pose_idx).zfill(self.z_len)}.npy"
         target_image = np.load(target_img_f)
         not_gray_pix = np.argwhere((target_image == 128).sum(-1) != 3)
@@ -83,6 +88,7 @@ class PixelNeRFDataset(Dataset):
         target_pose = self.poses[obj_idx, target_pose_idx]
         target_R = target_pose[:3, :3]
 
-        R = source_R.T @ target_R
+        R_one = source_R_one.T @ target_R
+        R_two = source_R_two.T @ target_R
 
-        return (source_image, torch.Tensor(R), torch.Tensor(target_image), bbox)
+        return (source_image_one, source_image_two,torch.Tensor(R_one), torch.Tensor(R_two), torch.Tensor(target_image), bbox)
