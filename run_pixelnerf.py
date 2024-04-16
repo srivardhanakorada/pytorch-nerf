@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import os
 
 from image_encoder import ImageEncoder
 from pixelnerf_dataset import PixelNeRFDataset
@@ -200,10 +201,8 @@ class PixelNeRFFCResNet(nn.Module):
         return {"c_is": c_is, "sigma_is": sigma_is}
 
 def load_data():
-    # Initialize dataset and test object/poses.
-    data_dir = "data"
-    # See Section B.2.1 in the Supplementary Materials.
-    num_iters = 400000
+    data_dir = "data/03207941"
+    num_iters = 70000
     test_obj_idx = 5
     test_source_pose_idx = 11
     test_target_pose_idx = 33
@@ -233,25 +232,33 @@ def set_up_test_data(train_dataset, device):
 
     R = torch.Tensor(source_R.T @ target_R).to(device)
 
+    # Saving source image
+    source_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03207941/source_image.png"
     plt.imshow(source_image)
-    plt.show()
+    plt.savefig(source_image_path)
+    plt.close()
+
+    # Preprocessing source image
     source_image = torch.Tensor(source_image)
-    source_image = (
-        source_image - train_dataset.channel_means
-    ) / train_dataset.channel_stds
+    source_image = (source_image - train_dataset.channel_means) / train_dataset.channel_stds
     source_image = source_image.to(device).unsqueeze(0).permute(0, 3, 1, 2)
+
+    # Saving target image
+    target_image_path = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03207941/target_image.png"
     plt.imshow(target_image)
-    plt.show()
+    plt.savefig(target_image_path)
+    plt.close()
+
     target_image = torch.Tensor(target_image).to(device)
 
-    return (source_image, R, target_image)
+    return source_image, R, target_image
 
 def main():
     seed = 9458
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    device = "cuda:1"
+    device = "cuda:0"
     F_c = PixelNeRFFCResNet().to(device)
     F_f = PixelNeRFFCResNet().to(device)
 
@@ -418,7 +425,7 @@ def main():
                 plt.subplot(122)
                 plt.plot(iternums, psnrs)
                 plt.title("PSNR")
-                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/" + "Iteration_"+str(i)
+                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03207941/" + "Iteration_"+str(i)
                 plt.savefig(store_folder)
                 plt.close('all')
             F_c.train()
