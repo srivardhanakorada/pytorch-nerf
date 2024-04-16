@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 
 
-class PixelNeRFDataset(Dataset):
+class PixelNeRFDatasetNshot(Dataset):
     def __init__(
         self,
         data_dir,
@@ -59,7 +59,7 @@ class PixelNeRFDataset(Dataset):
         for i in range(self.no_shots):
             source_pose_idx = np.random.randint(self.poses.shape[1])
             if obj_idx == self.test_obj_idx :
-                while source_pose_idx == self.test_source_pose_idx or source_pose_idx in source_pose_idx_list:
+                while source_pose_idx in self.test_source_pose_idx_list or source_pose_idx in source_pose_idx_list:
                     source_pose_idx = np.random.randint(self.poses.shape[1])
             else:
                 while source_pose_idx in source_pose_idx_list:
@@ -69,7 +69,7 @@ class PixelNeRFDataset(Dataset):
 
         source_img_f_list = [ f"{obj_dir}/{str(source_pose_idx).zfill(self.z_len)}.npy" for source_pose_idx in source_pose_idx_list]
         temp = [torch.Tensor(np.load(source_img_f) / 255) for source_img_f in source_img_f_list]
-        source_image_list = [((source_image - self.channel_means) / self.channel_stds) for source_image in temp]
+        source_image_list = [(source_image - self.channel_means) / self.channel_stds for source_image in temp]
         source_pose_list = [self.poses[obj_idx, source_pose_idx] for source_pose_idx in source_pose_idx_list]
         source_R_list = [source_pose[:3, :3] for source_pose in source_pose_list]
         
@@ -81,7 +81,7 @@ class PixelNeRFDataset(Dataset):
 
         target_pose_idx = np.random.randint(self.poses.shape[1])
         if obj_idx == self.test_obj_idx:
-            while (target_pose_idx == self.test_source_pose_idx) or (
+            while (target_pose_idx in self.test_source_pose_idx_list) or (
                 target_pose_idx == self.test_target_pose_idx
             ):
                 target_pose_idx = np.random.randint(self.poses.shape[1])
@@ -103,4 +103,4 @@ class PixelNeRFDataset(Dataset):
         # R = source_R.T @ target_R
         R_list = [source_R.T @ target_R for source_R in source_R_list]
 
-        return (source_image_list, torch.Tensor(R_list), torch.Tensor(target_image), bbox)
+        return (source_image_list, torch.stack(R_list), torch.Tensor(target_image), bbox)

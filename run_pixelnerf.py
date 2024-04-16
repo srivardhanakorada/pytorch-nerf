@@ -350,7 +350,6 @@ def main():
             )
             loss += criterion(C_rs_c, target_img_batch)
             loss += criterion(C_rs_f, target_img_batch)
-
         try:
             optimizer.zero_grad()
             loss.backward()

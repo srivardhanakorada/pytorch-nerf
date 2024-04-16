@@ -185,12 +185,13 @@ def load_data():
     data_dir = "data/03790512"
     num_iters = 10
     test_obj_idx = 5
-    no_shots = 2
-    test_source_pose_idx_list = [11,22]
-    test_target_pose_idx = 33
+    no_shots = 5
+    test_source_pose_idx_list = [1,2,3,4,5]
+    test_target_pose_idx = 6
     train_dataset = PixelNeRFDatasetNshot(
         data_dir, num_iters, test_obj_idx, test_source_pose_idx_list, test_target_pose_idx, no_shots
     )
+    # print(type(train_dataset[0][0][0]))
     return train_dataset
 
 def set_up_test_data(train_dataset, device):
@@ -289,12 +290,13 @@ def main():
     init_o = train_dataset.init_o.to(device) #?? As of now [0,0,camera_distance]
     init_ds = train_dataset.init_ds.to(device)
 
-    (test_source_image, test_R, test_target_image) = set_up_test_data(
+    (test_source_image_list, test_R_list, test_target_image) = set_up_test_data(
         train_dataset, device
     )
-    test_ds = torch.einsum("ij,hwj->hwi", test_R, init_ds)
-    test_os = (test_R @ init_o).expand(test_ds.shape)
 
+
+    test_ds_list = [torch.einsum("ij,hwj->hwi", test_R, init_ds) for test_R in test_R_list]
+    test_os_list = [(test_R_list[i] @ init_o).expand(test_ds_list[i].shape) for i in range(len(test_ds_list))]
     psnrs = []
     iternums = []
     num_iters = train_dataset.N
@@ -312,15 +314,15 @@ def main():
         loss = 0
         for obj in range(n_objs):
             try:
-                (source_image, R, target_image, bbox) = train_dataset[0]
+                (source_image_list, R_list, target_image, bbox) = train_dataset[0]
             except ValueError:
                 continue
 
-            R = R.to(device)
+            R_list = R_list.to(device)
             # init_ds : Initial Pixel Coords in homogeneous form
             # ds : Transformed Pixel Coords in homogeneous form
-            ds = torch.einsum("ij,hwj->hwi", R, init_ds)
-            os = (R @ init_o).expand(ds.shape)
+            ds_list = [torch.einsum("ij,hwj->hwi", R_list[img_idx], init_ds) for img_idx in range(R_list.shape[0])]
+            os_list = [(R_list[img_idx] @ init_o).expand(ds_list[img_idx].shape) for img_idx in range(R_list.shape[0])]
 
             if use_bbox:
                 pix_rows = np.arange(bbox[0], bbox[2])
@@ -339,43 +341,50 @@ def main():
 
             pix_idx_rows = pix_row_cols[selected_pix, 0]
             pix_idx_cols = pix_row_cols[selected_pix, 1]
-            ds_batch = ds[pix_idx_rows, pix_idx_cols].reshape(
+            ds_batch_list = [ds_list[img_idx][pix_idx_rows, pix_idx_cols].reshape(
                 batch_img_size, batch_img_size, -1
-            )
-            os_batch = os[pix_idx_rows, pix_idx_cols].reshape(
+            ) for img_idx in range(len(ds_list))]
+            os_batch_list = [os_list[img_idx][pix_idx_rows, pix_idx_cols].reshape(
                 batch_img_size, batch_img_size, -1
-            )
+            ) for img_idx in range(len(os_list))]
 
             with torch.no_grad():
                 # Unsqueeze : Adding a dimesnion (128 * 128 *3 --> 1*128*128*3)
                 # Permute : Rearranges the dimensions of input tensor (1*128*128*3 --> 1*3*128*128)
-                W_i = E(source_image.unsqueeze(0).permute(0, 3, 1, 2).to(device))
+                W_i_list = [ E(source_image_list[i].unsqueeze(0).permute(0, 3, 1, 2).to(device))  for i in range(len(source_image_list))]
+                
+            C_rs_c_list, C_rs_f_list = [], []
 
-            (C_rs_c, C_rs_f) = run_one_iter_of_pixelnerf(
-                ds_batch,
-                N_c,
-                t_i_c_bin_edges,
-                t_i_c_gap,
-                os_batch,
-                camera_distance,
-                scale,
-                W_i,
-                chunk_size,
-                F_c,
-                N_f,
-                t_f,
-                N_d,
-                d_std,
-                t_n,
-                F_f,
-            )
+            for img_idx in range(len(W_i_list)):
+
+                (C_rs_c, C_rs_f) = run_one_iter_of_pixelnerf(
+                    ds_batch_list[img_idx],
+                    N_c,
+                    t_i_c_bin_edges,
+                    t_i_c_gap,
+                    os_batch_list[img_idx],
+                    camera_distance,
+                    scale,
+                    W_i_list[img_idx],
+                    chunk_size,
+                    F_c,
+                    N_f,
+                    t_f,
+                    N_d,
+                    d_std,
+                    t_n,
+                    F_f,
+                )
+                C_rs_c_list.append(C_rs_c)
+                C_rs_f_list.append(C_rs_f)
+
             target_img = target_image.to(device)
             target_img_batch = target_img[pix_idx_rows, pix_idx_cols].reshape(
-                C_rs_c.shape
+                C_rs_c_list[0].shape
             )
-            loss += criterion(C_rs_c, target_img_batch)
-            loss += criterion(C_rs_f, target_img_batch)
-
+        for img_idx in range(len(W_i_list)):
+            loss += criterion(C_rs_c_list[img_idx], target_img_batch)
+            loss += criterion(C_rs_f_list[img_idx], target_img_batch)
         try:
             optimizer.zero_grad()
             loss.backward()
@@ -386,51 +395,60 @@ def main():
         if i % display_every == 0:
             F_c.eval()
             F_f.eval()
-
             with torch.no_grad():
-                test_W_i = E(test_source_image)
-
-                (_, C_rs_f) = run_one_iter_of_pixelnerf(
-                    test_ds,
-                    N_c,
-                    t_i_c_bin_edges,
-                    t_i_c_gap,
-                    test_os,
-                    camera_distance,
-                    scale,
-                    test_W_i,
-                    chunk_size,
-                    F_c,
-                    N_f,
-                    t_f,
-                    N_d,
-                    d_std,
-                    t_n,
-                    F_f,
-                )
-            loss = criterion(C_rs_f, test_target_image)
-            print(f"Loss at iteration {i} : {loss.item()}")
-            psnr = -10.0 * torch.log10(loss)
-            psnrs.append(psnr.item())
-            iternums.append(i)
-            if i%plot_every == 0:
-                plt.figure(figsize=(10, 4))
-                plt.subplot(121)
-                plt.imshow(C_rs_f.detach().cpu().numpy())
-                plt.title(f"Iteration {i}")
-                plt.subplot(122)
-                plt.plot(iternums, psnrs)
-                plt.title("PSNR")
-                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/" + "Iteration_"+str(i)
-                plt.savefig(store_folder)
-                plt.close('all')
-            F_c.train()
-            F_f.train()
+                test_W_i_list = []
+                for j in range(len(test_source_image_list)):
+                    test_W_i_list.append(E(test_source_image_list[j]))
+                C_rs_f_list =[]
+                for j in range(len(test_source_image_list)):
+                    (_, C_rs_f) = run_one_iter_of_pixelnerf(
+                        test_ds_list[j],
+                        N_c,
+                        t_i_c_bin_edges,
+                        t_i_c_gap,
+                        test_os_list[j],
+                        camera_distance,
+                        scale,
+                        test_W_i_list[j],
+                        chunk_size,
+                        F_c,
+                        N_f,
+                        t_f,
+                        N_d,
+                        d_std,
+                        t_n,
+                        F_f,
+                    )
+                    C_rs_f_list.append(C_rs_f)
+                    loss += criterion(C_rs_f, test_target_image)
+                print(f"Loss at iteration {i} : {loss.item()}")
+                psnr = -10.0 * torch.log10(loss)
+                psnrs.append(psnr.item())
+                iternums.append(i)
+                temp = C_rs_f_list[0].detach().cpu().numpy()
+                for img_idx in range(1,len(C_rs_f_list)):
+                    temp += C_rs_f_list[img_idx].detach().cpu().numpy()
+                final_op = temp/len(C_rs_f_list)
+                if i%plot_every == 0:
+                    plt.figure(figsize=(10, 4))
+                    plt.subplot(121)
+                    plt.imshow(final_op)
+                    plt.title(f"Iteration {i}")
+                    plt.subplot(122)
+                    plt.plot(iternums, psnrs)
+                    plt.title("PSNR")
+                    store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/" + "Iteration_"+str(i)
+                    plt.savefig(store_folder)
+                    plt.close('all')
+                F_c.train()
+                F_f.train()
     print("Done!")
 
 
 
 if __name__ == "__main__":
-    a = load_data()
+    # a = load_data()
     device = "cuda:0"
-    b =set_up_test_data(a,device)
+    # device ='cpu'
+    # b =set_up_test_data(a,device)
+    main()
