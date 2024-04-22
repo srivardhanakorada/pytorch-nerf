@@ -11,8 +11,6 @@ class ImageEncoder(nn.Module):
         self.resnet = resnet34(True)
 
     def forward(self, x):
-        # Extract feature pyramid from image. See Section 4.1., Section B.1 in the
-        # Supplementary Materials, and: https://github.com/sxyu/pixel-nerf/blob/master/src/model/encoder.py.
         x = self.resnet.conv1(x)
         x = self.resnet.bn1(x)
         feats1 = self.resnet.relu(x)
@@ -20,7 +18,7 @@ class ImageEncoder(nn.Module):
         feats2 = self.resnet.layer1(self.resnet.maxpool(feats1))
         feats3 = self.resnet.layer2(feats2)
         feats4 = self.resnet.layer3(feats3)
-
+        print(feats1.shape, feats2.shape, feats3.shape, feats4.shape)
         latents = [feats1, feats2, feats3, feats4]
         latent_sz = latents[0].shape[-2:]
         for i in range(len(latents)):
