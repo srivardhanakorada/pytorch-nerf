@@ -16,8 +16,8 @@ def main():
     )
     img_size = 100
     focal = (img_size / 2) / np.tan(np.radians(ANGLE_OF_VIEW) / 2)
-    obj = "1a2d2208f73d0531cec33e62192b66e5"
-    cat = "03790512"
+    obj = "1d139c80e904584b4243f79fcf368f62"
+    cat = "03928116"
     obj_mtl_path = f"{SHAPENET_DIR}/{cat}/{obj}/models/model_normalized"
     renderer.set_up_obj(f"{obj_mtl_path}.obj", f"{obj_mtl_path}.mtl")
     init_cam_pos = np.array([0, 0, CAMERA_DISTANCE])

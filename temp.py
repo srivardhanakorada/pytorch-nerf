@@ -1,61 +1,58 @@
-import torch.nn as nn
-
-from torchvision.models import inception_v3
-import torch.nn.functional as F
-
-# class ImageEncoderold(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.resnet = resnet50(True)
-
-#     def forward(self, x):
-#         x = self.resnet.conv1(x)
-#         x = self.resnet.bn1(x)
-#         feats1 = self.resnet.relu(x)
-#         feats2 = self.resnet.layer1(self.resnet.maxpool(feats1))
-#         feats3 = self.resnet.layer2(feats2)
-#         feats4 = self.resnet.layer3(feats3)
-#         latents = [feats1, feats2, feats3, feats4]
-#         latent_sz = latents[0].shape[-2:]
-#         for i in range(0,len(latents)-1):
-#             latents[i] = F.interpolate(
-#                 latents[i], latent_sz, mode="bilinear", align_corners=True
-#             )
-#         latents = torch.cat(latents[0:3], dim=1)
-#         return latents
-
-# write using inception_v3
-class ImageEncoder(nn.Module):
+class VeryTinyNeRFMLP(nn.Module):
     def __init__(self):
         super().__init__()
-        self.inception = inception_v3(pretrained=True)
+        self.L_pos = 6
+        self.L_dir = 4
+        pos_enc_feats = 3 + 3 * 2 * self.L_pos
+        dir_enc_feats = 3 + 3 * 2 * self.L_dir
+        net_width = 256
+        self.early_mlp = nn.Sequential(
+            nn.Linear(pos_enc_feats, net_width),
+            nn.ReLU(),
+            nn.Linear(net_width, net_width + 1),
+            nn.ReLU(),
+        )
+        self.middle_mlp1 = nn.Sequential(
+            nn.Linear(net_width + dir_enc_feats, net_width//2),
+            nn.ReLU(),
+            nn.Linear(net_width//2, net_width//4 + 1),
+            nn.ReLU(),
+        )
+        self.middle_mlp2 = nn.Sequential(
+            nn.Linear(net_width//4 + dir_enc_feats, net_width//4 + 1),
+            nn.ReLU(),
+            nn.Linear(net_width//4 + 1, net_width//2 + 1),
+            nn.ReLU(),
+        )
+        self.late_mlp = nn.Sequential(
+            nn.Linear(net_width//2 + dir_enc_feats, net_width),
+            nn.ReLU(),
+            nn.Linear(net_width, 3),
+            nn.Sigmoid(),
+        )
+    def forward(self, xs, ds):
+        xs_encoded = [xs]
+        for l_pos in range(self.L_pos):
+            xs_encoded.append(torch.sin(2**l_pos * torch.pi * xs))
+            xs_encoded.append(torch.cos(2**l_pos * torch.pi * xs))
+        xs_encoded = torch.cat(xs_encoded, dim=-1)
+        ds = ds / ds.norm(p=2, dim=-1).unsqueeze(-1)
+        ds_encoded = [ds]
+        for l_dir in range(self.L_dir):
+            ds_encoded.append(torch.sin(2**l_dir * torch.pi * ds))
+            ds_encoded.append(torch.cos(2**l_dir * torch.pi * ds))
+        ds_encoded = torch.cat(ds_encoded, dim=-1)
 
-    def forward(self, x):
-        x = self.inception.Conv2d_1a_3x3(x)
-        feats1 = x
-        x = self.inception.Conv2d_2a_3x3(x)
-        feats2 = x
-        x = self.inception.Conv2d_2b_3x3(x)
-        feats3 = x
-        x = self.inception.Conv2d_3b_1x1(x)
-        feats4 = x
-        # x = self.inception.Conv2d_4a_3x3(x)
-        # x = self.inception.Mixed_5b(x)
-        # x = self.inception.Mixed_5c(x)
-        # x = self.inception.Mixed_5d(x)
-        # feats2 = x
-        latents = [feats1, feats2, feats3, feats4]
-        latent_sz = 64
-        for i in range(0,len(latents)):
-            latents[i] = F.interpolate(
-                latents[i], latent_sz, mode="bilinear", align_corners=True
-            )
-        latents = torch.cat(latents, dim=1)
-        return latents # output shape is 1*368*64*64
-    
-# create random input of shape 1*3*128*128 and pass to above image encoder
-# print the output shape
-import torch
-x = torch.randn(1, 3, 128, 128)
-model = ImageEncoder()
-output = model(x)
+        outputs = self.early_mlp(xs_encoded)
+
+        inp_middle_mlp = torch.cat([outputs[:, 1:], ds_encoded], dim=-1)
+        outputs = self.middle_mlp1(inp_middle_mlp)
+        sigma_is = outputs[:, 0]
+
+        inp_middle_mlp = torch.cat([outputs[:, 1:], ds_encoded], dim=-1)
+        outputs = self.middle_mlp2(inp_middle_mlp)
+        sigma_is = outputs[:, 0]
+
+        c_is = self.late_mlp(torch.cat([outputs[:, 1:], ds_encoded], dim=-1))
+
+        return {"c_is": c_is, "sigma_is": sigma_is}

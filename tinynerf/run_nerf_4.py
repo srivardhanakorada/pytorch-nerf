@@ -81,7 +81,10 @@ class VeryTinyNeRFMLP(nn.Module):
         sigma_is = outputs[:, 0]
         c_is = self.late_mlp(torch.cat([outputs[:, 1:], ds_encoded], dim=-1))
         return {"c_is": c_is, "sigma_is": sigma_is}
-def main(device="cuda:0"):
+def main(device="cuda:0",num_iters=20000):
+    name = "bag"
+    data_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/data/tiny_nerf_data/{name}"
+    results_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/tiny_nerf/tiny_param_4/{name}"
     seed = 9458
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -91,9 +94,7 @@ def main(device="cuda:0"):
     optimizer = optim.Adam(F_c.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
-    #TODO: Load data
-    folder_name = "1a2d2208f73d0531cec33e62192b66e5"
-    data_f = folder_name + ".npz"
+    data_f = data_folder + ".npz"
     data = np.load(data_f)
     images = data["images"] / 255
     img_size = images.shape[1]
@@ -107,7 +108,7 @@ def main(device="cuda:0"):
     init_o = torch.Tensor(np.array([0, 0, float(data["camera_distance"])])).to(device)
     test_idx = 150
     plt.imshow(images[test_idx])
-    plt.savefig("results/tiny_param_4/{}/test_img.png".format(folder_name))
+    plt.savefig(results_folder + "/test_img.png")
     test_img = torch.Tensor(images[test_idx]).to(device)
     poses = data["poses"]
     test_R = torch.Tensor(poses[test_idx, :3, :3]).to(device)
@@ -124,13 +125,11 @@ def main(device="cuda:0"):
     poses = torch.Tensor(poses[train_idxs])
     psnrs = []
     iternums = []
-    #TODO: Change num_iters
-    num_iters = 20000
     display_every = 100
     plot_every = 1000
     F_c.train()
-    logging.info("Started processing model with {} early and {} late layers for {}".format(len(F_c.early_mlp), len(F_c.late_mlp), folder_name))
-
+    
+    logging.info("Started processing model")
     for i in range(num_iters):
         target_img_idx = np.random.randint(images.shape[0])
         target_pose = poses[target_img_idx].to(device)
@@ -142,7 +141,7 @@ def main(device="cuda:0"):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # Testing
+
         if i % display_every == 0:
             F_c.eval()
             with torch.no_grad():
@@ -159,22 +158,21 @@ def main(device="cuda:0"):
             plt.plot(iternums, psnrs)
             plt.title("PSNR")
             if i % plot_every == 0:
-                plt.savefig("results/tiny_param_4/{}/iter_{}.png".format(folder_name,i))
+                plt.savefig(results_folder + "/iter_{}.png".format(i))
             F_c.train()
             plt.close()
             logging.info("Iteration: {}, PSNR: {}".format(i, psnr.item()))
-    logging.info("Processed model with {} early and {} late layers".format(len(F_c.early_mlp), len(F_c.late_mlp)))
-    logging.info("Saving losses")
-    np.save("results/tiny_param_4/{}/psnrs.npy".format(folder_name), psnrs)
+    logging.info("Processed model")
+    logging.info("Saving PSNRs")
+    np.save(results_folder + "/psnrs.npy", np.array(psnrs))
     logging.info("Saving model")
-    torch.save(F_c.state_dict(), "results/tiny_param_4/{}/F_c.pth".format(folder_name))
+    torch.save(F_c.state_dict(), results_folder + "/F_c.pth")
     logging.info("Saving optimizer")
-    torch.save(optimizer.state_dict(), "results/tiny_param_4/{}/optimizer.pth".format(folder_name))
+    torch.save(optimizer.state_dict(), results_folder + "/optimizer.pth")
     logging.info("DONE!")
-
 if __name__ == "__main__":
-    device = "cuda:2"
-    logging.basicConfig(filename='dup_tiny_nerf.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    device = "cuda:1"
+    logging.basicConfig(filename='/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/logs/tiny_nerf/tiny_param_4/bag.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logging.info("***STARTING***")
-    main(device=device)
+    main(device=device,num_iters=20001)
     logging.info("***FINISHED***")
