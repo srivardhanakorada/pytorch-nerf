@@ -95,7 +95,7 @@ class VeryTinyNeRFMLP(nn.Module):
         return {"c_is": c_is, "sigma_is": sigma_is}
 
 def main(device="cuda:0",num_iters=20000):
-    name = "piano"
+    name = "camera"
     data_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/data/tiny_nerf_data/{name}"
     results_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/tiny_nerf/tiny_param_6/{name}"
     seed = 9458
@@ -186,7 +186,7 @@ def main(device="cuda:0",num_iters=20000):
 
 if __name__ == "__main__":
     device = "cuda:1"
-    logging.basicConfig(filename='/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/logs/tiny_nerf/tiny_param_6/piano.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(filename='/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/logs/tiny_nerf/tiny_param_6/camera.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logging.info("***STARTING***")
     main(device=device,num_iters=20001)
     logging.info("***FINISHED***")
