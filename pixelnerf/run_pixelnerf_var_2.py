@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from image_encoder import ImageEncoder34 as ImageEncoder
+from image_encoder import ImageEncoder50 as ImageEncoder
 from pixelnerf_dataset import PixelNeRFDataset
 from torch import nn, optim
 import logging
@@ -129,7 +129,7 @@ class PixelNeRFFCResNet(nn.Module):
         pos_enc_feats = 3 + 3 * 2 * self.L_pos
         dir_enc_feats = 3 + 3 * 2 * self.L_dir
 
-        net_width = 512
+        net_width = 832
         self.first_layer = nn.Sequential(
             nn.Linear(pos_enc_feats + dir_enc_feats, net_width)
         )
@@ -190,7 +190,7 @@ def load_data(name):
     return train_dataset
 
 def set_up_test_data(train_dataset, device, name):
-    results_dir = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel_nerf/var_1/{name}"
+    results_dir = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel_nerf/var_2/{name}"
     obj_idx = train_dataset.test_obj_idx
     obj = train_dataset.objs[obj_idx]
     data_dir = train_dataset.data_dir
@@ -230,7 +230,7 @@ def set_up_test_data(train_dataset, device, name):
     return source_image, R, target_image
 
 def main(name, device="cuda:1"):
-    results_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel_nerf/var_1/{name}"
+    results_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel_nerf/var_2/{name}"
     seed = 9458
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -277,7 +277,7 @@ def main(name, device="cuda:1"):
     num_iters = train_dataset.N
     use_bbox = True
     num_bbox_iters = 300000
-    display_every = 100
+    display_every = 1000
     plot_every = 10000
     F_c.train()
     F_f.train()
@@ -414,7 +414,7 @@ def main(name, device="cuda:1"):
     logging.info("DONE!")
 
 if __name__ == "__main__":
-    logging.basicConfig(filename='/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/logs/pixel_nerf/var_1/bike.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(filename='/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/logs/pixel_nerf/var_2/bike.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logging.info("*** Starting PixelNeRF Resnet34***")
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     main("bike",device)

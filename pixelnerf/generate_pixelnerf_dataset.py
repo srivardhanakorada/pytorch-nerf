@@ -6,7 +6,7 @@ from pyrr import Matrix44
 from renderer import gen_rotation_matrix_from_cam_pos, Renderer
 from renderer_settings import *
 
-SHAPENET_DIR = "/run/media/airalcorn2/MiQ BIG/ShapeNetCore.v2"
+SHAPENET_DIR = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/ShapeNet"
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
     # See Section 5.1.1.
     samps = 50
     z_len = len(str(samps - 1))
-    data_dir = "data"
+    data_dir = "data/pixel_nerf_data/car"
     poses = []
     os.mkdir(data_dir)
 

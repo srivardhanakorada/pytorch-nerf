@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from image_encoder_var import ImageEncoder
+from image_encoder import ImageEncoderInception as ImageEncoder
 from pixelnerf_dataset import PixelNeRFDataset
 from torch import nn, optim
 import logging
@@ -178,9 +178,9 @@ class PixelNeRFFCResNet(nn.Module):
         c_is = torch.sigmoid(outputs[:, 1:])
         return {"c_is": c_is, "sigma_is": sigma_is}
 
-def load_data():
-    data_dir = "data/03790512"
-    num_iters = 2
+def load_data(name):
+    data_dir = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/data/pixel_nerf_data/{name}"
+    num_iters = 70001
     test_obj_idx = 5
     test_source_pose_idx = 11
     test_target_pose_idx = 33
@@ -189,7 +189,8 @@ def load_data():
     )
     return train_dataset
 
-def set_up_test_data(train_dataset, device):
+def set_up_test_data(train_dataset, device, name):
+    results_dir = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel_nerf/var_3/{name}"
     obj_idx = train_dataset.test_obj_idx
     obj = train_dataset.objs[obj_idx]
     data_dir = train_dataset.data_dir
@@ -210,20 +211,30 @@ def set_up_test_data(train_dataset, device):
 
     R = torch.Tensor(source_R.T @ target_R).to(device)
 
+    source_image_path = results_dir + "/source_image.png"
+    plt.imshow(source_image)
+    plt.savefig(source_image_path)
+    plt.close()
+
     source_image = torch.Tensor(source_image)
     source_image = (source_image - train_dataset.channel_means) / train_dataset.channel_stds
     source_image = source_image.to(device).unsqueeze(0).permute(0, 3, 1, 2)
+
+    target_image_path = results_dir + "/target_image.png"
+    plt.imshow(target_image)
+    plt.savefig(target_image_path)
+    plt.close()
 
     target_image = torch.Tensor(target_image).to(device)
 
     return source_image, R, target_image
 
-def main():
+def main(name, device="cuda:1"):
+    results_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel_nerf/var_3/{name}"
     seed = 9458
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    device = "cpu"
     F_c = PixelNeRFFCResNet().to(device)
     F_f = PixelNeRFFCResNet().to(device)
 
@@ -237,7 +248,7 @@ def main():
     optimizer = optim.Adam(list(F_c.parameters()) + list(F_f.parameters()), lr=lr)
     criterion = nn.MSELoss()
 
-    train_dataset = load_data()
+    train_dataset = load_data(name)
 
     camera_distance = train_dataset.camera_distance
     scale = train_dataset.scale
@@ -256,7 +267,7 @@ def main():
     init_ds = train_dataset.init_ds.to(device)
 
     (test_source_image, test_R, test_target_image) = set_up_test_data(
-        train_dataset, device
+        train_dataset, device, name
     )
     test_ds = torch.einsum("ij,hwj->hwi", test_R, init_ds)
     test_os = (test_R @ init_o).expand(test_ds.shape)
@@ -266,8 +277,8 @@ def main():
     num_iters = train_dataset.N
     use_bbox = True
     num_bbox_iters = 300000
-    display_every = 1
-    plot_every = 1
+    display_every = 1000
+    plot_every = 10000
     F_c.train()
     F_f.train()
     E.eval()
@@ -386,25 +397,25 @@ def main():
                 plt.subplot(122)
                 plt.plot(iternums, psnrs)
                 plt.title("PSNR")
-                store_folder = "/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/pixel/oneshot/03790512/" + "Iteration_"+str(i)
-                plt.savefig(store_folder)
+                temp = results_folder + "/Iteration_"+str(i)
+                plt.savefig(temp)
                 plt.close('all')
             logging.info(f"Iteration {i} PSNR: {psnr.item()}")
             F_c.train()
             F_f.train()
-    print("Done!")
-    logging.info("Saving losses")
-    np.save("results/pixel/oneshot/{}/psnrs.npy".format("03790512"), psnrs)
-    logging.info("Saving model")
-    torch.save(F_c.state_dict(), "results/pixel/oneshot/{}/F_c.pth".format("03790512"))
+    logging.info("Saving psnrs")
+    np.save(results_folder+"/psnrs.npy", psnrs)
+    logging.info("Saving F_c")
+    torch.save(F_c.state_dict(), results_folder+"/F_c.pth")
+    logging.info("Saving F_f")
+    torch.save(F_f.state_dict(), results_folder+"/F_f.pth")
     logging.info("Saving optimizer")
-    torch.save(F_f.state_dict(), "results/pixel/oneshot/{}/F_f.pth".format("03790512"))
-    logging.info("Saving image encoder")
-    torch.save(optimizer.state_dict(), "results/pixel/oneshot/{}/optimizer.pth".format("03790512"))
+    torch.save(optimizer.state_dict(), results_folder+"/optimizer.pth")
     logging.info("DONE!")
 
 if __name__ == "__main__":
-    logging.basicConfig(filename='pixel_oneshot_var_2.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    logging.info("*** Starting PixelNeRF ***")
-    main()
+    logging.basicConfig(filename='/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/logs/pixel_nerf/var_3/bike.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.info("*** Starting PixelNeRF Resnet34***")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    main("bike",device)
     logging.info("*** Finished PixelNeRF ***")
