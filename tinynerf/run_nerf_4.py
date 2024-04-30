@@ -82,9 +82,9 @@ class VeryTinyNeRFMLP(nn.Module):
         c_is = self.late_mlp(torch.cat([outputs[:, 1:], ds_encoded], dim=-1))
         return {"c_is": c_is, "sigma_is": sigma_is}
 def main(device="cuda:0",num_iters=20000):
-    name = "bag"
-    data_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/data/tiny_nerf_data/{name}"
-    results_folder = f"/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/results/tiny_nerf/tiny_param_4/{name}"
+    name = "car"
+    data_folder = f"/home/yasaswinib/Vardhan/pytorch-nerf/{name}"
+    results_folder = f"/home/yasaswinib/Vardhan/pytorch-nerf/new_results/tiny_param_4/{name}"
     seed = 9458
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -172,7 +172,7 @@ def main(device="cuda:0",num_iters=20000):
     logging.info("DONE!")
 if __name__ == "__main__":
     device = "cuda:1"
-    logging.basicConfig(filename='/data/home1/saichandra/Vardhan/projectAIP/pytorch-nerf/logs/tiny_nerf/tiny_param_4/bag.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(filename='/home/yasaswinib/Vardhan/pytorch-nerf/new_results/tiny_param_4_logs/car.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logging.info("***STARTING***")
     main(device=device,num_iters=20001)
     logging.info("***FINISHED***")
